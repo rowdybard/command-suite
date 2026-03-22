@@ -12,7 +12,7 @@ export const checkTemporalOverlap = (startA, endA, startB, endB) => {
   return (startAMin < endBMin) && (endAMin > startBMin);
 };
 
-export const findConflicts = (events, staffDb) => {
+export const findConflicts = (events, staffDb, vehiclesDb) => {
   const conflicts = new Map();
   
   const eventsByDate = events.reduce((acc, event) => {
@@ -24,28 +24,38 @@ export const findConflicts = (events, staffDb) => {
   Object.entries(eventsByDate).forEach(([date, dateEvents]) => {
     dateEvents.forEach((eventA, indexA) => {
       dateEvents.slice(indexA + 1).forEach((eventB) => {
-        const sharedStaff = eventA.assignedStaffIds.filter(staffId =>
-          eventB.assignedStaffIds.includes(staffId)
+        const hasOverlap = checkTemporalOverlap(
+          eventA.startTime,
+          eventA.endTime,
+          eventB.startTime,
+          eventB.endTime
         );
         
-        if (sharedStaff.length > 0) {
-          const hasOverlap = checkTemporalOverlap(
-            eventA.startTime,
-            eventA.endTime,
-            eventB.startTime,
-            eventB.endTime
+        if (hasOverlap) {
+          const sharedStaff = (eventA.assignedStaffIds || []).filter(staffId =>
+            (eventB.assignedStaffIds || []).includes(staffId)
           );
           
-          if (hasOverlap) {
+          const sharedVehicles = (eventA.assignedVehicleIds || []).filter(vehicleId =>
+            (eventB.assignedVehicleIds || []).includes(vehicleId)
+          );
+          
+          if (sharedStaff.length > 0 || sharedVehicles.length > 0) {
+            if (!conflicts.has(eventA.id)) {
+              conflicts.set(eventA.id, new Set());
+            }
+            if (!conflicts.has(eventB.id)) {
+              conflicts.set(eventB.id, new Set());
+            }
+            
             sharedStaff.forEach(staffId => {
-              if (!conflicts.has(eventA.id)) {
-                conflicts.set(eventA.id, new Set());
-              }
-              if (!conflicts.has(eventB.id)) {
-                conflicts.set(eventB.id, new Set());
-              }
               conflicts.get(eventA.id).add(staffId);
               conflicts.get(eventB.id).add(staffId);
+            });
+            
+            sharedVehicles.forEach(vehicleId => {
+              conflicts.get(eventA.id).add(vehicleId);
+              conflicts.get(eventB.id).add(vehicleId);
             });
           }
         }
@@ -54,4 +64,25 @@ export const findConflicts = (events, staffDb) => {
   });
   
   return conflicts;
+};
+
+export const checkResourceAvailability = (events, date, startTime, endTime, excludeEventId = null) => {
+  const relevantEvents = events.filter(e => 
+    e.date === date && 
+    e.id !== excludeEventId &&
+    checkTemporalOverlap(e.startTime, e.endTime, startTime, endTime)
+  );
+  
+  const unavailableStaff = new Set();
+  const unavailableVehicles = new Set();
+  
+  relevantEvents.forEach(event => {
+    (event.assignedStaffIds || []).forEach(id => unavailableStaff.add(id));
+    (event.assignedVehicleIds || []).forEach(id => unavailableVehicles.add(id));
+  });
+  
+  return {
+    unavailableStaff,
+    unavailableVehicles
+  };
 };
